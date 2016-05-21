@@ -17,12 +17,13 @@ using namespace std;
 //#define COLOURSPACE_YUV
 
 int edgeThresh = 1;
-int lowThreshold = 40;
+int lowThreshold = 20;
 int edgeThreshold;
 int const max_lowThreshold = 100;
 int ratio = 3;
 int kernel_size = 3;
 char* window_name = "Edge Map";
+char* depth_name = "Depth Map";
 
 
 char* getImageType(int number)
@@ -77,11 +78,12 @@ int main(int argc, char **argv)
 
 
     Mat frame(ACTUAL_ROWS, ACTUAL_COLS, CV_8UC1);
-    Mat frameSmoothed(ACTUAL_ROWS, ACTUAL_COLS, CV_8UC1);
+
     Mat dst;
 
     /// Create a window
     namedWindow( window_name, WINDOW_AUTOSIZE );
+    namedWindow( depth_name, WINDOW_AUTOSIZE);
 
     /// Create a Trackbar for user to enter threshold
  //   createTrackbar( "Min Threshold:", window_name, &lowThreshold, max_lowThreshold, NULL );
@@ -97,6 +99,8 @@ int main(int argc, char **argv)
         Mat detected_edges;
         Mat dst_norm;
         Mat dst_norm_scaled;
+        Mat frameSmoothed(ACTUAL_ROWS, ACTUAL_COLS, CV_8UC1);
+        Mat frameDepth(ACTUAL_ROWS, ACTUAL_COLS/2, CV_8UC3); //Render as size of single camera
         void * videobuffer;
         size_t size;
         long frame_count = 0;
@@ -212,34 +216,37 @@ int main(int argc, char **argv)
 
 
        //Search for edge to get template to match
-	   int edgeNumRhs = 0;
        int edgeNumLhs = 0;
        int rowEdge = 200;
-       int rowOffSetRhs =  -60;
+       int rowOffSetRhs = -30;
        Mat templ;
        int templStartX;
        int templStartY;
-       int templWidth=20;
+       int templWidth=30;
        int templHeight=20;
-       int ROIWidth = 130;
-       int ROIHeight = 90;
+       int ROIWidth = 90;
+       int ROIHeight = 50;
+       int camImageWidth = (dst.cols - 1)/2;
        Point matchLoc;
-#define NUM_RHS_EDGES_TO_SEARCH 5
-#define NUM_LHS_EDGES_TO_SEARCH 1
+#define NUM_RHS_EDGES_TO_SEARCH 60
+#define NUM_LHS_EDGES_TO_SEARCH 60
+
        int edgeStoreLhs[NUM_LHS_EDGES_TO_SEARCH];
        int edgeStoreRhs[NUM_RHS_EDGES_TO_SEARCH];
 
        int colEdgeLhsSearchStart = (ROIWidth/2)+10;
-       int colEdgeLhsSearchEnd = (dst.cols - 1)/2;
+       int colEdgeLhsSearchEnd = camImageWidth;
        int colEdgeLhsSearchInc = 1;
 
        int rowEdgeRhs = rowEdge + rowOffSetRhs;
+       frameDepth.setTo(Scalar(0,0,0));
 
 
        for(int colEdgeLhs = colEdgeLhsSearchStart; colEdgeLhs < colEdgeLhsSearchEnd; colEdgeLhs += colEdgeLhsSearchInc)  //avoid grabbing a ROI outside the image
        {
     	   Mat result;
            double minEdgeVal = 255;
+    	   int edgeNumRhs = 0;
 
     	   if(edgeNumLhs < NUM_LHS_EDGES_TO_SEARCH)
     	   {
@@ -249,10 +256,19 @@ int main(int argc, char **argv)
     			   //circle( dst, Point( colEdgeLhs, rowEdge ), 10,  Scalar(200), 2, 8, 0 );
 
     			   //Grab the template around the edge(only a pointer to the source image LHS
-    			   templ = frame(	cv::Range(rowEdge 	 - (templWidth/2),  rowEdge   + (templWidth/2)),	//rows
-    					   	   	    cv::Range(colEdgeLhs - (templHeight/2), colEdgeLhs + (templHeight/2)));  //cols
+    			   templ = frame(Rect(	colEdgeLhs - (templWidth/2), // x,
+    					                rowEdge - (templHeight/2), // y
+    					                templWidth,
+    					                templHeight));
 
     			   imshow( "Template", templ );
+    	           {
+    			       {
+
+    				      //circle( dst, Point( colEdgeLhs, rowEdge ), 10,  Scalar(200), 2, 8, 0 );
+    			       }
+
+    	           }
 
     			   //Now we have an edge on the LHS, search the RHS
 
@@ -261,9 +277,9 @@ int main(int argc, char **argv)
     			   //    		       for(int colEdgeRhs=((dst.cols - 1)/2) + 10; colEdgeRhs < ((dst.cols - 1 - (ROIWidth/2))); colEdgeRhs++)
 //    		       int colEdgeRhsSearchStart = (ROIWidth/2)+10;
 //    		       int colEdgeRhsSearchEnd = (((dst.cols - 1)/2) - (ROIWidth/2));
-    		       int colEdgeRhsSearchStart = (dst.cols - 1)/2;
-    		       int colEdgeRhsSearchEnd = ((dst.cols - 1) - (ROIWidth/2));
-    		       int colEdgeRhsSearchInc = 1;
+    		       int colEdgeRhsSearchStart =   camImageWidth;
+    		       int colEdgeRhsSearchEnd   = ((camImageWidth*2) - (ROIWidth/2));
+    		       int colEdgeRhsSearchInc   = 1;
 
 
     		       for(int colEdgeRhs=colEdgeRhsSearchStart; colEdgeRhs < colEdgeRhsSearchEnd; colEdgeRhs += colEdgeRhsSearchInc)
@@ -276,7 +292,8 @@ int main(int argc, char **argv)
 
     		      			   Mat ROI;
 
-        		    	       {
+        		    	       if(0)
+    		      			   {
     		      				   char textBuf[64];
      //   		    	           sprintf (&textBuf[0], "Type =  %s, x = %ld, y = %ld", getImageType(dst.type()), dst.cols, dst.rows);
        		    	               sprintf (	&textBuf[0],
@@ -285,20 +302,23 @@ int main(int argc, char **argv)
        		    	            		   	    dst.at<uchar>(rowEdgeRhs, colEdgeRhs),
        		    	            		   	    colEdgeRhs);
 
-        		    	           putText(	dst,
-        		    	        		   	textBuf,
-        		    	      		   	    Point2f(100, (100 + edgeNumRhs*20)),
-        		    	        		   	FONT_HERSHEY_PLAIN,
-        		    	                    2,
-        		    	                    Scalar::all(200));
+//        		    	           putText(	dst,
+//        		    	        		   	textBuf,
+//        		    	      		   	    Point2f(100, (100 + edgeNumRhs*20)),
+//        		    	        		   	FONT_HERSHEY_PLAIN,
+//        		    	                    1,
+//        		    	                    Scalar::all(200));
         		    	       }
 
 //    		    			   circle( dst, Point( colEdgeRhs, rowEdge  + (rowOffSetRhs) ), 10,  Scalar(200), 2, 8, 0 );
 
     		    			   //Grab the ROI around the edge only a pointer to the RHS source image in which to search
     		    			   //As the calibration impoves this ROI can be reduced.
-    		    			   ROI = frame(	cv::Range(rowEdgeRhs - (ROIHeight/2),  rowEdgeRhs + (ROIHeight/2)),	 //rows
-    		    					   	   	cv::Range(colEdgeRhs - (ROIWidth/2),   colEdgeRhs + (ROIWidth/2)));  //cols
+    		    			   ROI = frame(Rect(	colEdgeRhs - (ROIWidth/2), // x,
+    		    					   	   	   	   	rowEdgeRhs - (ROIHeight/2), // y
+    		    					   	   	        ROIWidth,
+    		    					   	   	        ROIHeight));
+
 
     		    			   edgeStoreRhs[edgeNumRhs] = colEdgeRhs;
 //#ifdef _REMOVE
@@ -309,10 +329,13 @@ int main(int argc, char **argv)
 
     		    	           result.create( result_cols, result_rows, CV_32FC1 );
 
+
+ //   		    	           methods = ['cv2.TM_CCOEFF', 'cv2.TM_CCOEFF_NORMED', 'cv2.TM_CCORR',
+ //   		    	                       'cv2.TM_CCORR_NORMED', 'cv2.TM_SQDIFF', 'cv2.TM_SQDIFF_NORMED']
+
     		    			   //Match with our LHS template
-    		    		       matchTemplate(ROI, templ, result, CV_TM_SQDIFF);
-    		    		       normalize( result, result, 0, 1, NORM_MINMAX, -1, Mat() );
-    		    			   imshow( "matchnorm", result );
+    		    		       matchTemplate(ROI, templ, result, TM_SQDIFF_NORMED/*CV_TM_SQDIFF*/);
+    		    		       //normalize( result, result, 0, 1, NORM_MINMAX, -1, Mat() );
 
     		    		       /// Localizing the best match with minMaxLoc
     		    		       double minVal; double maxVal; Point minLoc; Point maxLoc;
@@ -320,8 +343,10 @@ int main(int argc, char **argv)
     		    		       minMaxLoc( result, &minVal, &maxVal, &minLoc, &maxLoc , Mat());
 
     		    		       if( minVal < minEdgeVal)
+    		    		       //    		    		       if( minVal < minEdgeVal)
     		    		       {
-               		    	        {
+               		    	       if(1)
+    		    		    	   {
             		      				   char textBuf[64];
              //   		    	           sprintf (&textBuf[0], "Type =  %s, x = %ld, y = %ld", getImageType(dst.type()), dst.cols, dst.rows);
                		    	               sprintf (	&textBuf[0],
@@ -330,12 +355,12 @@ int main(int argc, char **argv)
                		    	            		   	    minLoc.y,
                		    	            		   	    minVal);
 
-                		    	           putText(	dst,
-                		    	        		   	textBuf,
-                		    	      		   	    Point2f(100, (130 + edgeNumRhs*20)),
-                		    	        		   	FONT_HERSHEY_PLAIN,
-                		    	                    2,
-                		    	                    Scalar::all(200));
+  //              		    	           putText(	dst,
+  //              		    	        		   	textBuf,
+  //              		    	      		   	    Point2f(100, (130 + edgeNumRhs*20)),
+  //              		    	        		   	FONT_HERSHEY_PLAIN,
+  //              		    	                    2,
+   //             		    	                    Scalar::all(200));
                 		    	   }
    		    		    	       minEdgeVal = minVal;
     		    		    	   matchLoc = minLoc;
@@ -344,6 +369,7 @@ int main(int argc, char **argv)
         		    		       //matchLoc.x -= (templ.cols/2);
         		    		       matchLoc.y += (rowEdgeRhs - (ROIHeight/2));
         		    		       //matchLoc.y -= (templ.rows/2);
+        		    			   imshow( "matchnorm", result );
     		    		       }
 //#endif  //_REMOVE
    		    			       edgeNumRhs++;
@@ -352,46 +378,75 @@ int main(int argc, char **argv)
     		    		   }
     		    	   }
     		       }
+    		       {
+    		    	   //Calc the disparity for the current match in the current row +ve is right and is nearer
+    		    	   long frameDepthValue = (matchLoc.x - camImageWidth) - colEdgeLhs;
+    		    	   long scaleDepthValue = 127 + ((frameDepthValue * 127) / camImageWidth);
+    		    	   {
+		      				   char textBuf[64];
+ //   		    	           sprintf (&textBuf[0], "Type =  %s, x = %ld, y = %ld", getImageType(dst.type()), dst.cols, dst.rows);
+   		    	               sprintf (	&textBuf[0],
+   		    	            		   	   	"fdv = %ld, sd = %ld, edgeLhs = %ld, edgeRhs = %ld",
+   		    	            		   	    frameDepthValue,
+   		    	            		   	    scaleDepthValue,
+   		    	            		   	colEdgeLhs,
+   		    	            		 (matchLoc.x - camImageWidth));
+
+    		    	           putText(	frameDepth,
+    		    	        		   	textBuf,
+    		    	      		   	    Point2f(10, 130),
+    		    	        		   	FONT_HERSHEY_PLAIN,
+    		    	                    1,
+    		    	                    Scalar::all(200));
+    		    	   }
+    		    	   //frameDepthValue = 200;
+  		           rectangle( frameDepth,
+    		        		   	  Point(  matchLoc.x - camImageWidth,
+    		        		   			  matchLoc.y),
+    		        		   	  Point( ((matchLoc.x - camImageWidth) + (templ.cols)),
+    		        		   			  matchLoc.y + (templ.rows) ),
+    		        		   	  Scalar((255-frameDepthValue), frameDepthValue, 50), 2, 8 );
+
+    		       }
        			   edgeNumLhs++;
        	    	   colEdgeLhs+=8;
 
     		   }
 
     	   }
-       }
 
        //draw the regions for the row  !!need to do this 2 dims for more than one row...
-#ifndef _REMOVE
-       rectangle( dst,
-    		   	  matchLoc,
-    		   	  Point( (matchLoc.x + (templ.cols)),
-    		   			  matchLoc.y + (templ.rows) ),
-    		   	  Scalar::all(200), 2, 8, 0 );
+#ifdef _REMOVE
+          if(edgeNumRhs > 0)
+          {
+    	     rectangle(  dst,
+    		    	   	 matchLoc,
+    			   	     Point( (matchLoc.x + (templ.cols)),
+    			   		   	    matchLoc.y + (templ.rows) ),
+    			   	    Scalar::all(200), 2, 8, 0 );
+           }
+           for(int edge = 0; edge <  edgeNumRhs ; edge++)
+           {
+		       {
+
+			       rectangle(  dst,
+					      	   Point( edgeStoreRhs[edge] - (ROIWidth/2), rowEdgeRhs   - (ROIHeight/2) ),
+					     	   Point( edgeStoreRhs[edge] + (ROIWidth/2), rowEdgeRhs   + (ROIHeight/2) ),
+	        		   	       Scalar::all(200), 2, 8, 0 );
+		       }
+
+           }
+//           for(int edge = 0; edge <  edgeNumLhs ; edge++)
+
 #endif //_REMOVE
-       for(int edge = 0; edge <  edgeNumRhs ; edge++)
-       {
-		   {
+           }
 
-			   rectangle(  dst,
-					   	   Point( edgeStoreRhs[edge] - (ROIWidth/2), rowEdgeRhs   - (ROIHeight/2) ),
-					   	   Point( edgeStoreRhs[edge] + (ROIWidth/2), rowEdgeRhs   + (ROIHeight/2) ),
-	        		   	   Scalar::all(200), 2, 8, 0 );
-		   }
-
-       }
-       for(int edge = 0; edge <  edgeNumLhs ; edge++)
-       {
-		   {
-
-			   circle( dst, Point( edgeStoreLhs[edge], rowEdge ), 10,  Scalar(200), 2, 8, 0 );
-		   }
-
-       }
 
        imshow( window_name, dst );
 
 
-       imshow("lalala",frame);
+ //      imshow("lalala",frame);
+         imshow(depth_name,frameDepth);
 #else //BYPASS_PROC
        imshow("lalala",frame);
 #endif
